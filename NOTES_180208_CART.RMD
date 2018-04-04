@@ -1,0 +1,201 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+# install.packages("rpart.plot")
+library(rpart.plot)
+library(rpart)
+
+stevens = read.csv("https://prod-edxapp.edx-cdn.org/assets/courseware/v1/80dfa0ae5eb3fa2013a34507cd58fabb/asset-v1:MITx+15.071x+2T2017+type@asset+block/stevens.csv")
+head(stevens)
+```
+
+```{r}
+# install.packages("caTools")
+library(caTools)
+set.seed(3000)
+spl = sample.split(stevens$Reverse,SplitRatio = .7)
+Train = subset(stevens,spl==T)
+Test = subset(stevens,spl==F)
+head(Test)
+```
+
+```{r}
+set.seed(3000)
+StevensTree = rpart(Reverse~Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,data=Train,method="class",minbucket = 25)
+
+prp(StevensTree)
+
+```
+
+```{r}
+PredictCART = predict(StevensTree,newdata=Test,type='class')
+table(Test$Reverse,PredictCART)
+```
+
+```{r}
+#accuracy
+(41+71)/(41+22+36+71)
+
+```
+
+```{r}
+library(ROCR)
+PredictROC = predict(StevensTree,newdata = Test)
+head(PredictROC)
+```
+
+```{r}
+pred =prediction(PredictROC[,2],Test$Reverse)
+perf = performance(pred,"tpr","fpr")
+plot(perf)
+```
+```{r}
+as.numeric(performance(pred, "auc")@y.values)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+```{r}
+set.seed(3000)
+StevensTree1 = rpart(Reverse~Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,data=Train,method="class",minbucket = 5)
+
+prp(StevensTree1)
+#Overfitting may occur
+```
+
+```{r}
+set.seed(3000)
+StevensTree2 = rpart(Reverse~Circuit + Issue + Petitioner + Respondent + LowerCourt + Unconst,data=Train,method="class",minbucket = 100)
+
+prp(StevensTree2)
+#simple tree with no predictive value 
+```
+
+```{r}
+install.packages("randomForest")
+library(randomForest)
+Train$Reverse = as.factor(Train$Reverse)
+set.seed(200)
+StevensForest=randomForest(Reverse~Circuit+Issue+Petitioner+Respondent+LowerCourt+Unconst,data =Train,nodesize=25,ntree=200)
+PredictForest = predict(StevensForest,newdata = Test)
+table(Test$Reverse,PredictForest)
+#May not be the same as the course as there is a random component in using randomForest. Consider using set.seed() for uniformity sake
+(44+76)/(43+73+20+34)
+#
+```
+
+```{r}
+# install.packages("caret")
+# install.packages("e1071")
+# install.packages("ggplot2")
+library(e1071)
+library(caret)
+numFolds = trainControl(method='cv',number=10)
+cpGrid = expand.grid(.cp=seq(0.01,0.5,0.01))
+train(Reverse~Circuit+Issue+Petitioner+Respondent+LowerCourt+Unconst,
+      data = Train,
+      method = "rpart",
+      trControl=numFolds,
+      tuneGrid=cpGrid)
+
+```
+
+```{r}
+StevensTreeCV = rpart(Reverse~Circuit+Issue+Petitioner+Respondent+LowerCourt+Unconst,data =Train,method="class",cp=0.19)
+PredictCV = predict(StevensTreeCV,newdata = Test,type="class")
+table(Test$Reverse,PredictCV)
+(59+64)/(59+64+18+29)
+prp(StevensTreeCV)
+```
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+
+## Healthcare analytics
+```{r}
+download.file("https://prod-edxapp.edx-cdn.org/assets/courseware/v1/1118f7556bc4faccd180540e7ee7b83a/asset-v1:MITx+15.071x+2T2017+type@asset+block/ClaimsData.csv.zip","ClaimsData.zip")
+z  = unz("ClaimsData.zip",filename = "ClaimsData.csv")
+ClaimsData = read.csv(z)
+head(ClaimsData)
+```
+
+```{r}
+str(ClaimsData)
+```
+
+```{r}
+table(ClaimsData$bucket2009)/nrow(ClaimsData)
+```
+
+```{r}
+#install.packages("caTools")
+library(caTools)
+set.seed(88)
+spl = sample.split(ClaimsData$bucket2009,SplitRatio = 0.6)
+ClaimsTrain = subset(ClaimsData,spl==T)
+ClaimsTest = subset(ClaimsData,spl==F)
+head(ClaimsTest)
+head(ClaimsTrain)
+```
+```{r}
+# library(dplyr)
+"What is the average age of patients in the training set, ClaimsTrain?"
+mean(ClaimsTrain$age)
+"What proportion of people in the training set (ClaimsTrain) had at least one diagnosis code for diabetes?"
+sum(ClaimsTrain$diabetes!=0)/nrow(ClaimsTrain)
+```
+
+Baseline Method: 2009 comparison to 2008 buckets
+```{r}
+table(ClaimsTest$bucket2009,ClaimsTest$bucket2008,dnn = list("2009","2008"))
+(110138+10721+2774+ 1539+ 104)/nrow(ClaimsTest)
+```
+Creating a Penalty Matrix
+If the predicted outcome(2008) has a lower cost bucket than the actual(2009) this may be perceived as costly.
+```{r}
+PenaltyMatrix = matrix(c(0,1,2,3,4,2,0,1,2,3,4,2,0,1,2,6,4,2,0,1,8,6,4,2,0),byrow =T,nrow=5)
+PenaltyMatrix
+```
+```{r}
+as.matrix(table(ClaimsTest$bucket2009,ClaimsTest$bucket2008))*PenaltyMatrix #Penalty error by outcome x expected
+sum(as.matrix(table(ClaimsTest$bucket2009,ClaimsTest$bucket2008))*PenaltyMatrix)/nrow(ClaimsTest) #Penalty Error
+```
+Suppose that instead of the baseline method discussed in the previous video, we used the baseline method of predicting the most frequent outcome for all observations. This new baseline method would predict cost bucket 1 for everyone.
+
+What would the accuracy of this baseline method be on the test set?
+```{r}
+table(ClaimsTest$bucket2009)
+122978/nrow(ClaimsTest)
+```
+
+What would the penalty error of this baseline method be on the test set?
+```{r}
+table(ClaimsTest$bucket2009)*c(0,2,4,6,8)
+sum(table(ClaimsTest$bucket2009)*c(0,2,4,6,8))/nrow(ClaimsTest)
+```
+
+###Predicting Healthcare Costs in R
+```{r}
+library(rpart)
+library(rpart.plot)
+ClaimsTree = rpart(bucket2009 ~ age + alzheimers+arthritis+cancer+copd+depression+diabetes+heart.failure+ihd+kidney+osteoporosis+stroke,data =ClaimsTrain,method="class",cp=0.00005,parms = list(loss = PenaltyMatrix))
+
+prp(ClaimsTree)
+```
+
+```{r}
+PredictTest = predict(ClaimsTree,newdata=ClaimsTest,type="class")
+table(ClaimsTest$bucket2009,PredictTest)
+(115774+13025+22)/nrow(ClaimsTest)
+```
+```{r}
+as.matrix(table(ClaimsTest$bucket2009,PredictTest))*PenaltyMatrix
+sum(as.matrix(table(ClaimsTest$bucket2009,PredictTest))*PenaltyMatrix)/nrow(ClaimsTest)
+```
+
